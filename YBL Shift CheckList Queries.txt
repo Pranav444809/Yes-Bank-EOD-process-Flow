@@ -1,0 +1,1061 @@
+﻿Shift 3 (Night Shift)
+(10 PM to 6 AM)
+
+
+1. Take the Shift HandOver from the previous shift person and check all the medium like webex chat, Mail or any pending issue.
+
+
+2. Check all Production admin ui are able to access any scheduler is present delete the scheduler from scheduler module post login.
+
+
+https://entdedupe.yesbank.in/AdminUI/#/ - Prime
+
+
+https://entdedupeclip.yesbank.in/AdminUI/#/ - Clip
+
+
+https://entdedupe.yesbank.in/CollateralAdminUI/#/ - Collateral
+
+
+https://entdedupescreen.yesbank.in/PrimeScreenAdminUI/#/schedulercomponent - Primescreen.
+
+
+3. Connect to cyberark or PSM tool.
+
+
+Connect to prod_prestaging DB execute below query to check gg replication
+
+
+SELECT /*+ PARALLEL(16)*/ 'FCR ACCOUNTS' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60) AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.CH_ACCT_MAST WHERE SOURCE_TXN_TIME>=SYSDATE-0.42 
+AND ROWNUM <2 UNION ALL 
+SELECT /*+ PARALLEL(16)*/ 'FCR CUSTOMER' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60) AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.CI_CUSTMAST WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2 UNION ALL
+SELECT /*+ PARALLEL(16)*/ 'FINNONE ACCOUNTS' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60) AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.LEA_AGREEMENT_DTL WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2 UNION ALL 
+SELECT /*+ PARALLEL(16)*/ 'FINNONE CUSTOMER' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60) AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.FINNGCD_PROD_NBFC_CUSTOMER_M WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2;
+--PFB query - 
+SELECT /*+ PARALLEL(16)*/ 'BRNET ACCOUNT' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60)
+AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.T_LOAN WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2 UNION ALL
+SELECT /*+ PARALLEL(16)*/ 'BRNET CUSTOMER' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60)
+AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.T_CLIENT WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2;
+
+
+SELECT /*+ PARALLEL(16)*/ 'DOWJONES' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60)
+AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.TBL_DJLIST_INDEX_SUBLIST_MAIN WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2 UNION ALL
+SELECT /*+ PARALLEL(16)*/ 'DOWJONES' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60)
+AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.TBL_DJPEPLIST_INDEX_SUBLIST_MAIN WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2;
+
+
+SELECT /*+ PARALLEL(16)*/ 'BANKINTERNALLIST' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60)
+AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.TBL_BLFPIUCNT WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2 UNION ALL
+SELECT /*+ PARALLEL(16)*/ 'BANKINTERNALLIST' TABLE_CATEGORY,ROUND((TARGET_TXN_TIME - SOURCE_TXN_TIME)*1440*60)
+AS DELAY_IN_SECONDS,TARGET_TXN_TIME, SOURCE_TXN_TIME FROM GGS.TBL_BANKINTERNALLISTVKYC WHERE SOURCE_TXN_TIME>=SYSDATE-0.42
+AND ROWNUM <2;
+
+
+
+
+4. Connect to pos_rd DB check CC customer data by changing batch_id executing below query
+
+
+i)  Check email status for cc customer data.
+ii)  To cross check the source system wise input data count query.
+
+
+WITH 
+eod_data AS (SELECT DISTINCT source_system, DATA_CATEGORY, BATCH_TOTAL_REC_COUNT, eod_status FROM PROD_PSX_DEDUPE_STAGING.psx_eod_control_t 
+WHERE batch_id = 20250128),
+customer_data AS(SELECT source_system, COUNT(*) AS record_count FROM PROD_PSX_DEDUPE_STAGING.ybl_customer_data_incremental WHERE batch_id = 20250128 
+GROUP BY source_system),
+
+
+account_data AS (SELECT source_system, COUNT(*) AS record_count FROM PROD_PSX_DEDUPE_STAGING.ybl_account_data_incremental WHERE batch_id = 20250128
+GROUP BY source_system)
+SELECT  eod.source_system AS eod_source_system, eod.DATA_CATEGORY, eod.BATCH_TOTAL_REC_COUNT,eod.eod_status,
+    CASE 
+        WHEN eod.DATA_CATEGORY = 'CUSTOMER' THEN COALESCE(to_char(cust.record_count), 'NA')
+        ELSE 'NA'
+    END AS customer_record_count,
+    CASE 
+        WHEN eod.DATA_CATEGORY = 'ACCOUNTS' THEN COALESCE(to_char(acc.record_count), 'NA')
+        ELSE 'NA'
+    END AS account_record_count
+FROM eod_data eod
+LEFT JOIN customer_data cust ON eod.source_system = cust.source_system
+LEFT JOIN account_data acc ON eod.source_system = acc.source_system order by data_category desc;
+
+
+Select count(*) from PROD_PSX_DEDUPE_STAGING.ybl_enpa_data_incremental;
+
+
+
+
+5. To check the Load balancing count of input requests server wise And Publish in grp.
+        Prime :-
+select count(*),API_type from prod_prime360dedupe.psx_ws_audit where trunc(insert_time)=trunc(sysdate) and insertion_order=1
+group by api_type;
+
+
+Collateral :- 
+select count(*),API_type from collateraldedupe.psx_ws_audit where trunc(insert_time)=trunc(sysdate) and insertion_order=1 and client_requestid not like 'PSXSUPPORT%'
+group by api_type;
+
+
+
+
+6. Hourly Report
+
+
+Connect to pos_rd db user and execute below query to publish hourly report
+
+
+1. Prime :-
+i) -- Total source system wise hit query and total count.
+
+
+SELECT userid,feed_sys_id,request_status,CNT  FROM (select count(*) AS CNT,request_status,feed_sys_id,userid from prod_prime360dedupe.psx_request where trunc(insert_time)=trunc(sysdate)
+group by request_status,feed_sys_id,userid
+union all
+select count(*) as cnt, 'C' ,'UPDT' ,SOURCE_SYSTEM from prod_prime360dedupe.PSX_UPDATE_STATUS_DETAILS where trunc(insert_time)=trunc(sysdate)
+group by SOURCE_SYSTEM
+UNION ALL
+select count(*) as cnt, 'C' ,'FAD' ,REQUESTED_BY from prod_prime360dedupe.PSX_FETCH_ACCOUNT_DETAILS where trunc(insert_time)=trunc(sysdate)
+group by REQUESTED_BY
+union all
+select  cnt,' ','FAILURE API',' ' from (SELECT COUNT(*) as cnt from prod_prime360dedupe.psx_ws_audit WHERE trunc(insert_time)=trunc(sysdate) and
+request_type IN ('FAA','US','FC','FAD') AND status LIKE '%Request Validations Failed%')
+union all
+select sum(cnt) as cnt,' ','System Maint',' ' from (SELECT COUNT( client_requestid) as cnt from prod_prime360dedupe.psx_ws_audit WHERE trunc(insert_time)=trunc(sysdate) and
+request_type IN ('FAA','US','FC','FAD') AND status LIKE '%System under Maintenance%')
+union all
+select sum(cnt) as cnt,' ','Invalid Token',' ' from (SELECT COUNT( client_requestid) as cnt from prod_prime360dedupe.psx_ws_audit WHERE trunc(insert_time)=trunc(sysdate) and
+request_type IN ('FAA','US','FC','FAD') AND status LIKE '%Got exception while calling Engine for processing%') 
+union all
+select count(*),' ','TOTAL_COUNT',' ' from(
+select to_char(insert_time,'hh24') from prod_prime360dedupe.psx_request where trunc(insert_time)=trunc(sysdate)and userid!='PSXSUPPORT'
+union all
+select to_char(insert_time,'hh24') from prod_prime360dedupe.psx_update_status_details where trunc(insert_time)=trunc(sysdate) AND SOURCE_SYSTEM!='PSXSUPPORT'
+union all
+select to_char(insert_time,'hh24') from prod_prime360dedupe.psx_fetch_account_details where trunc(insert_time)=trunc(sysdate) AND REQUESTED_BY!='PSXSUPPORT')
+) order by nullif(userid,' ') asc nulls last, case WHEN feed_sys_id='FC' then 1 WHEN feed_sys_id='FAA' then 2 when feed_sys_id='UPDT' then 3 when feed_sys_id='FAD' then 4 end,
+case when  feed_sys_id='FAILURE API' then 1 when feed_sys_id='System Maint' then 2 when feed_sys_id='Invalid Token' then 3 when 
+feed_sys_id='TOTAL_COUNT' then 4 end;
+
+
+
+
+ii) -- Hourly wise insertion count.
+
+
+select hour,count(*) as countt from(
+select to_char(insert_time,'dd-mm-yyyy hh24') as hour from prod_prime360dedupe.psx_request where trunc(insert_time)=trunc(sysdate) and userid!='PSXSUPPORT'
+union all
+select to_char(insert_time,'dd-mm-yyyy hh24') as hour from prod_prime360dedupe.psx_fetch_account_details where trunc(insert_time)=trunc(sysdate) and 
+REQUESTED_BY!='PSXSUPPORT'
+union all
+select to_char(insert_time,'dd-mm-yyyy hh24') as hour from prod_prime360dedupe.psx_update_status_details where trunc(insert_time)=trunc(sysdate) AND SOURCE_SYSTEM!='PSXSUPPORT'
+) group by hour order by 1 desc;
+
+
+2. Collateral :-
+
+
+i) -- Total source system wise hit query and total count.
+
+
+select userid,request_status,count(*) from collateraldedupe.psx_request where trunc(insert_time)=trunc(sysdate) and userid!='PSXSUPPORT'
+group by userid,request_status
+union all
+select ' ','API Failure',count(*)from collateraldedupe.psx_api_request_error_tbl where trunc(insert_time)=trunc(sysdate) 
+and  source_system_name!='PSXSUPPORT';
+
+
+ii) -- Hourly wise insertion count.
+select to_char(insert_time,'dd-mm-yyyy hh24') as hour,count(*) from collateraldedupe.psx_request where trunc(insert_time)=trunc(sysdate) and userid != 'PSXSUPPORT'
+group by to_char(insert_time,'dd-mm-yyyy hh24') order by 1 desc;
+7. Production Services and Health check :- 
+
+
+Check all services status in below Production server IP’s and note down the ram details and fill in the YBL_EOD_STATUS_SHEET-2026.xlsx and fill the check list.
+
+
+Path:- K:\BDTS-Posidex$\Posidex daily monitoring
+YBL_EOD_STATUS_SHEET-2026.xlsx
+
+
+-- To check the details
+jps -l    -   4 services should up and running
+df -h     -  /EDDS and /POSIDEX mountpoint storage details update in group.
+free -g  -  Ram details update in sheet
+
+
+10.246.68.78 - Prod Prime Primary (Appadmin User)
+
+
+org.apache.catalina.startup.Bootstrap
+ndp.wcftjop.szodq.tbtDkbcKp
+psxservicewrapper.jar
+org.springframework.boot.loader.PropertiesLauncher
+
+
+10.246.68.79 - Prod Prime Secondary (Appadmin User)
+
+
+org.apache.catalina.startup.Bootstrap
+ndp.wcftjop.szodq.tbtDkbcKp
+psxservicewrapper.jar
+org.springframework.boot.loader.PropertiesLauncher
+
+
+
+
+10.246.68.80 - Prod Clip
+
+
+ndp.wcftjop.szodq.tbtDkbcKp
+org.springframework.boot.loader.PropertiesLauncher
+psxservicewrapper.jar
+com.posidex.grouping.manager.GroupingJMSManager
+
+
+
+
+
+
+Type FAPD in cyber ark or PSM tool for collateral and connect below servers
+10.246.68.78 - Prod Collateral Primary (fapd User)
+
+
+ndp.wcftjop.szodq.tbtDkbcKp
+org.springframework.boot.loader.PropertiesLauncher
+com.custom.tomcat.Tomcat
+com.psx.start.CollatServiceWrapper
+
+
+
+
+10.246.68.79 - Prod Collateral Secondary (fapd User)
+
+
+ndp.wcftjop.szodq.tbtDkbcKp
+org.springframework.boot.loader.PropertiesLauncher
+com.custom.tomcat.Tomcat
+com.psx.start.CollatServiceWrapper
+
+
+
+
+10.246.68.208  - Prod PrimeScreen Primary
+
+
+ndp.wcftjop.szodq.tbtDkbcKp
+org.springframework.boot.loader.PropertiesLauncher
+org.apache.catalina.startup.Bootstrap
+com.psx.start.NearRealTimeServiceWrapper
+com.psx.start.PrimeScreenServiceWrapper
+com.psx.start.HistTableDelJar
+
+
+10.246.68.208  - Prod PrimeScreen Secondary
+
+
+org.apache.catalina.startup.Bootstrap
+org.springframework.boot.loader.PropertiesLauncher
+com.psx.start.PrimeScreenServiceWrapper
+ndp.wcftjop.szodq.tbtDkbcKp
+
+
+
+
+8. Execute below to check eod data
+
+
+REDACTION EOD QUERY
+-------------------
+collateral
+----------
+-- email recives at 9:15 PM for collateral data
+
+
+select count(*),source_system_name,batch_id FROM PROD_PSX_DEDUPE_STAGING.ybl_collateral_data_incremental
+group by source_system_name,batch_id ;
+
+
+select * FROM PROD_PSX_DEDUPE_STAGING.PSX_COLLATERAL_EOD_CONTROL_T where eod_status='P';
+
+
+-- ENPA email alert and data recives 06:00 PM to 10:00 PM
+-- BRNET customer email alert and data recives at 09:30 TO 09:35 PM
+-- BRNET customer email alert and data recives at 09:40 TO 09:50 PM
+-- FINNONE customer email alert and data recives at 10:00 PM
+-- FINNONE ACCOUNTS email alert and data recives at 10:15 PM
+-- FCR CUSTOMER email alert and data recives at 10:35 PM
+-- FCR ACCOUNTS email alert and data recives at 10:51 PM
+
+
+-- updated query
+
+
+WITH 
+eod_data AS (SELECT DISTINCT source_system, DATA_CATEGORY, BATCH_TOTAL_REC_COUNT, eod_status FROM PROD_PSX_DEDUPE_STAGING.psx_eod_control_t 
+WHERE batch_id = 20251007),
+customer_data AS(SELECT source_system, COUNT(*) AS record_count FROM PROD_PSX_DEDUPE_STAGING.ybl_customer_data_incremental WHERE batch_id = 20251007 
+GROUP BY source_system),
+
+
+account_data AS (SELECT source_system, COUNT(*) AS record_count FROM PROD_PSX_DEDUPE_STAGING.ybl_account_data_incremental WHERE batch_id = 20251007
+GROUP BY source_system)
+
+
+SELECT  eod.source_system AS eod_source_system, eod.DATA_CATEGORY, eod.BATCH_TOTAL_REC_COUNT,eod.eod_status,
+    CASE 
+        WHEN eod.DATA_CATEGORY = 'CUSTOMER' THEN COALESCE(to_char(cust.record_count), 'NA')
+        ELSE 'NA'
+    END AS customer_record_count,
+    CASE 
+        WHEN eod.DATA_CATEGORY = 'ACCOUNTS' THEN COALESCE(to_char(acc.record_count), 'NA')
+        ELSE 'NA'
+    END AS account_record_count
+FROM eod_data eod
+LEFT JOIN customer_data cust ON eod.source_system = cust.source_system
+LEFT JOIN account_data acc ON eod.source_system = acc.source_system order by data_category desc,case WHEN EOD_SOURCE_SYSTEM='FCR'
+THEN 1 WHEN EOD_SOURCE_SYSTEM='FINNONE' THEN 2 WHEN EOD_SOURCE_SYSTEM='CC' THEN 3 end ;
+
+
+
+
+select count(*) from PROD_PSX_DEDUPE_STAGING.ybl_enpa_data_incremental;
+
+
+
+
+9. Check duplicates :- 
+
+
+select count(*),source_system||'_'||source_system_custid from PROD_PSX_DEDUPE_STAGING.ybl_customer_data_incremental group by source_system||'_'||source_system_custid having count(*)>1;
+
+
+select count(*),source_system||'_'||source_system_custid,account_number from PROD_PSX_DEDUPE_STAGING.ybl_account_data_incremental group by source_system||'_'||source_system_custid,account_number having count(*)>1;
+select count(*),source_system||'_'||source_system_custid from PROD_PSX_DEDUPE_STAGING.ybl_enpa_data_incremental group by source_system||'_'||source_system_custid having count(*)>1;
+
+
+select count(*) from (
+select source_system,source_system_custid,account_number,count(*) from ybl_account_data_incremental 
+group by source_system,source_system_custid,account_number having count(*) >1);
+
+
+
+
+
+
+10. Sharing data to client from Client table and error Error table:- 
+
+
+select * from prod_psx_dedupe_staging.ybl_account_data_incremental_hist where  (source_system||'_'||source_system_custid,account_number,batch_id) in
+(select source_system||'_'||source_system_custid,account_number,batch_id from prod_psx_dedupe_staging.ybl_account_data_incremental_hist where  batch_id='20251031'
+group by source_system||'_'||source_system_custid,account_number,batch_id having count(*) >1) 
+order by source_system_custid desc;
+
+
+select * from prod_prime360dedupe.psx_account_data_incremental_error where  batch_id='20251031';
+
+
+-- total count
+select data_category,sum(batch_total_rec_count) from PROD_PSX_DEDUPE_STAGING.psx_eod_control_t where  batch_id='20250211' group by data_category;
+
+
+-- Monitor logs during the eod process
+
+
+cd /Posidex/Prime360HA/Logs - prime
+cd /Posidex/collateral/Logs - collateral
+
+
+
+
+11. Scheduler message to schedule EOD Process :- 
+
+
+CLIP
+--------
+ID : CLIP_EOD
+Name : CLIP_EOD
+Text/Json :  {"shedulerType":"CLIP_EOD","processType":"INCREMENTAL"}
+Queue Name : PSX_SCHEDULER_Q
+expression : 0 03 23 * * ?
+
+
+
+
+COLLATERAL
+---------------------
+Scheduler Id: 1
+Schedule Name: Collateral_Incremental_process
+Cron Expression: 0 0 22 * * ?
+Queue Name: PSX_SCHEDULER_Q
+Text: {"schedulerType":"Collateral_Incremental","processType":"Collateral_Incremental"}
+
+
+        
+PrimeScreen
+        ===========
+
+
+BankList schedular:
+--------------------------
+Scheduler Id      = 1
+Schedule Name     = NearRealTimeBankDataScheduler
+Cron Expression   = 30 05 20 * * ?
+Queues              = PSX_BANKDATA_SCHEDULER_Q
+Jms Message        = {"schedulerType":"NearRealTimeBankDataAddition","processType":"NearRealTimeBankDataAddition"}
+
+
+Downjones Scheduler:
+-----------------------------
+Scheduler Id      = 2
+Schedule Name     = NearRealTimeDowjonesDataScheduler
+Cron Expression   = 30 06 20 * * ?
+Queues              = PSX_DOWJONESDATA_SCHEDULER_Q
+Jms Message        = {"schedulerType":"NearRealTimeDowjonesDataAddition","processType":"NearRealTimeDowjonesDataAddition"}
+
+
+EOD(FTD-TRG) :
+----------------------
+Scheduler Id      = 3
+Schedule Name     = PrimeScreen_Incremental_Purpose
+Cron Expression   = 30 07 20 * * ?
+Queues              = PSX_SCHEDULER_Q
+Jms Message        = {"schedulerType":"PRIMESCREEN_EOD","processType":"PRIMESCREEN_EOD"}
+
+
+
+
+
+
+
+
+12. Before EOD Data sheet filling query change the batch_id :- 
+
+
+-- EOD COUNT  sheet QUERY (Execute before clip Eod scheduler initiation)
+
+
+select 
+(select  distinct to_char(trunc(insert_ts),'dd/mm/yyyy') from prod_psx_dedupe_staging.psx_eod_control_t where batch_id='20260301') As eod_date,
+(select distinct batch_id from prod_psx_dedupe_staging.psx_eod_control_t where batch_id='20260301') as batch_id,
+(select count(*) from prod_psx_dedupe_staging.ybl_customer_data_incremental where batch_id='20260301' and source_system='BRNET') as cus_brnet,
+(select count(*) from prod_psx_dedupe_staging.ybl_customer_data_incremental where batch_id='20260301' and source_system='FINNONE') as cus_finnone,
+(select count(*) from prod_psx_dedupe_staging.ybl_customer_data_incremental where batch_id='20260301' and source_system='FCR') as CUS_fcr,
+(select count(*) from prod_psx_dedupe_staging.ybl_customer_data_incremental where batch_id='20260301' and source_system='CC') as cus_cc,
+(select count(*) from prod_psx_dedupe_staging.ybl_customer_data_incremental where batch_id='20260301') as cus_toatalcount,
+(select count(*) from prod_psx_dedupe_staging.ybl_account_data_incremental where batch_id='20260301' and source_system='BRNET') as acc_brnet,
+(select count(*) from prod_psx_dedupe_staging.ybl_account_data_incremental where batch_id='20260301' and source_system='FINNONE') as acc_finnone,
+(select count(*) from prod_psx_dedupe_staging.ybl_account_data_incremental where batch_id='20260301' and source_system='FCR') as acc_fcr,
+(select count(*) from prod_psx_dedupe_staging.ybl_account_data_incremental where batch_id='20260301' and source_system='CC') as acc_cc,
+(select count(*) from prod_psx_dedupe_staging.ybl_account_data_incremental where batch_id='20260301') as acc_toatalcount,
+(select count(*) from prod_psx_dedupe_staging.ybl_enpa_data_incremental) as enpa_count,
+(select count(*) /*+parallel(4) */ from PROD_PSX_DEDUPE_STAGING.ybl_collateral_data_incremental_hist where batch_id='20260301' and source_system_name='FINNONE') as col_finnone,
+(select customer_p0 /*+parallel(4) */ from prod_clipdedupe.psx_object_stats where psx_batch_id in (select distinct psx_batch_id from prod_psx_dedupe_staging.psx_eod_control_t where batch_id=(20260301)-1))  as clip_object 
+from dual;
+
+
+
+
+-- PRIME_EODTIMINGS
+
+
+SELECT
+    to_char(insert_time,'dd/mm/yyyy') as date1,
+    bpm_message_id as psx_batch_id,
+    TO_CHAR(MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s0_start_time,   
+    TO_CHAR(MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s0_end_time,  
+    TO_CHAR(MAX(CASE WHEN j.stage = 1 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s1_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 1 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s1_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 2 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s2_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 2 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s2_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 3 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s3_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 3 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s3_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s4_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s4_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 5 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s5_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 5 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s5_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 6 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s6_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 6 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s6_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 7 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s7_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 7 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s7_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 8 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s8_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 8 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s8_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 9 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s9_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 9 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s9_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 10 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s10_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 10 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s10_end_time,
+    -- Calculate the time difference using NUMTODSINTERVAL
+    REGEXP_SUBSTR(
+        -- Cast the absolute difference between the dates to an interval
+        TO_CHAR(
+            NUMTODSINTERVAL(
+                ABS(
+                    MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END) -
+                    MAX(CASE WHEN j.stage = 10 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END)
+                ), 'DAY'
+            )
+        ), '[[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}'
+    ) AS Total_time,
+            REGEXP_SUBSTR(
+        -- Cast the absolute difference between the dates to an interval
+        TO_CHAR(
+            NUMTODSINTERVAL(
+                ABS(
+                    MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END) -
+                    MAX(CASE WHEN j.stage = 7 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END)
+                ), 'DAY'
+            )
+        ), '[[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}'
+    ) AS Down_Time
+FROM
+    prod_prime360dedupe.psx_bpm_live,
+    JSON_TABLE(
+        purpose_json_content,
+        '$.workFlowStages[*]'
+        COLUMNS (
+            stage              NUMBER PATH '$.workStage',
+            startDate          VARCHAR2(30) PATH '$.startDate',
+            endDate            VARCHAR2(30) PATH '$.endDate'
+        )
+    ) j
+WHERE bpm_message_id IN (SELECT DISTINCT psx_batch_id FROM prod_psx_dedupe_staging.psx_eod_control_t WHERE batch_id = '20260301')
+group by bpm_message_id,to_char(insert_time,'dd/mm/yyyy');
+
+
+
+
+
+
+-- CLIP_EOD_TIMINGS
+
+
+SELECT
+    to_char(insert_time,'dd/mm/yyyy') as date1,
+    bpm_message_id as psx_batch_id,
+    TO_CHAR(MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s0_start_time,   
+    TO_CHAR(MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s0_end_time,  
+    TO_CHAR(MAX(CASE WHEN j.stage = 1 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s1_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 1 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s1_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 2 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s2_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 2 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s2_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 3 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s3_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 3 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s3_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s4_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s4_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 5 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s5_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 5 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s5_end_time,
+    -- Calculate the time difference using NUMTODSINTERVAL
+    REGEXP_SUBSTR(
+        -- Cast the absolute difference between the dates to an interval
+        TO_CHAR(
+            NUMTODSINTERVAL(
+                ABS(
+                    MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END) -
+                    MAX(CASE WHEN j.stage = 5 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END)
+                ), 'DAY'
+            )
+        ), '[[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}'
+    ) AS Total_time
+FROM
+    prod_clipdedupe.psx_bpm_live,
+    JSON_TABLE(
+        purpose_json_content,
+        '$.workFlowStages[*]'
+        COLUMNS (
+            stage              NUMBER PATH '$.workStage',
+            startDate          VARCHAR2(30) PATH '$.startDate',
+            endDate            VARCHAR2(30) PATH '$.endDate'
+        )
+    ) j
+WHERE bpm_message_id IN (SELECT DISTINCT psx_batch_id FROM prod_psx_dedupe_staging.psx_eod_control_t WHERE batch_id = '20260301')
+group by bpm_message_id,to_char(insert_time,'dd/mm/yyyy');
+
+
+
+
+
+
+13. After EOD Data count sheet filling query change the batch_id :- 
+
+
+-- Prime _EOD_TIMINGS
+
+
+select
+(select  distinct to_char(trunc(insert_ts),'dd/mm/yyyy') from prod_psx_dedupe_staging.psx_eod_control_t where batch_id='20260301') As eod_date,
+(select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301') as psx_batch_id,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_customer_data_incremental where batch_id='20260301') as Stagging_Customer_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_customer_data_incremental_adt where batch_id='20260301') as Stagging_hist_Customer_count,
+(select /*+ parallel(2) */ count(distinct cust_unq_id) from PROD_CLIPDEDUPE.psx_customer_data_incremental_error where batch_id='20260301') as Stagging_Error_Customer_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_account_data_incremental where batch_id='20260301') as Stagging_account_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_account_data_incremental_hist where batch_id='20260301') as Stagging_hist_account_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_account_data_incremental_error where batch_id='20260301') as Stagging_error_account_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_enpa_data_incremental) as Stagging_enpa_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_enpa_data_incremental_hist) as Stagging_hist_enpa_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_enpa_data_incremental_error) as Stagging_error_enpa_count,
+(select /*+ parallel(2) */ count(*) from PROD_CLIPDEDUPE.p0_psx_cus_blk_trg where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301')) as Clip_Customer_Target_count,
+(select /*+ parallel(2) */ count(*) from PROD_CLIPDEDUPE.psxids_dt_2_hashing_adt where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301') and DUI_FLAG='I') as Customer_NewInserted_count,
+(select /*+ parallel(2) */ count(*) from PROD_CLIPDEDUPE.psxids_dt_2_hashing_adt where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301') and DUI_FLAG='CO') as Customer_Modified_count,
+(select /*+ parallel(2) */ count(*) from PROD_PRIME360DEDUPE.p0_psx_cus_blk_trg where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301')) as Prime_Customer_target_count, 
+(select /*+ parallel(2) */ count(*)  from PROD_PRIME360DEDUPE.psx_account_data_trg where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301')) as Prime_account_target_count,
+(select /*+ parallel(2) */ count(*)  from PROD_PRIME360DEDUPE.psx_account_data_incremental_error where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301')) as Prime_account_error_count,
+(select psx_enpa_count from prod_prime360dedupe.psx_prime_eod_counts where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301')) as Prime_Enpa_target_count,
+(select /*+ parallel(2) */ count(*) from PROD_PRIME360DEDUPE.psx_enpa_data_incremental_error where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301')) as Prime_Enpa_error_count,
+(select customer_p0 from PROD_CLIPDEDUPE.psx_object_stats where psx_batch_id  in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301')) as Clip_Object_counts,
+(select /*+ parallel(2) */ count(*) from PROD_CLIPDEDUPE.p0_psx_cus_blk_trg) as Clip_Target_count,
+(select customer_p0 from PROD_PRIME360DEDUPE.psx_object_stats where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_EOD_CONTROL_T where batch_id='20260301')) as Prime_Object_counts,
+(select /*+ parallel(2) */ count(*) from PROD_PRIME360DEDUPE.p0_psx_cus_blk_trg) as Prime_Target_count,
+(select regexp_substr(max(insert_time)-min(insert_time),'[0-9]+\:[0-9]+\:[0-9]+') from PROD_PRIME360DEDUPE.psx_prime_eod_status 
+where psx_batch_id in (select psx_batch_id from PROD_PSX_DEDUPE_STAGING.psx_eod_control_t where batch_id='20260301')) as PRIME_EOD_END_TIME,
+(select /*+ parallel(2) */  regexp_substr(max(insert_ts)-min(insert_ts),'[0-9]+\:[0-9]+\:[0-9]+') from 
+PROD_CLIPDEDUPE.psx_clip_eod_status where psx_batch_id in (select psx_batch_id 
+from PROD_PSX_DEDUPE_STAGING.psx_eod_control_t where batch_id='20260301')) AS CLIP_EOD_END_TIME,
+(SELECT
+            REGEXP_SUBSTR(
+        -- Cast the absolute difference between the dates to an interval
+        TO_CHAR(
+            NUMTODSINTERVAL(
+                ABS(
+                    MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END) -
+                    MAX(CASE WHEN j.stage = 7 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END)
+                ), 'DAY'
+            )
+        ), '[[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}'
+    )
+FROM
+    prod_prime360dedupe.psx_bpm_live,
+    JSON_TABLE(
+        purpose_json_content,
+        '$.workFlowStages[*]'
+        COLUMNS (
+            stage              NUMBER PATH '$.workStage',
+            startDate          VARCHAR2(30) PATH '$.startDate',
+            endDate            VARCHAR2(30) PATH '$.endDate'
+        )
+    ) j
+WHERE bpm_message_id IN (SELECT DISTINCT psx_batch_id FROM prod_psx_dedupe_staging.psx_eod_control_t WHERE batch_id = '20260301')
+group by bpm_message_id,to_char(insert_time,'dd/mm/yyyy')) as API_DOWN_TIME,
+(select /*+ parallel(2) */  processed_online_counts  from prod_prime360dedupe.psx_prime_eod_counts where psx_batch_id in (select psx_batch_id from prod_prime360dedupe.master_psx_cus_blk_stg where
+batch_id='20260301')) as intrdy_to_trg,
+(select /*+ parallel(2) */ count(*) from prod_prime360dedupe.master_psx_cus_blk_stg trg where psx_batch_id in (select psx_batch_id from prod_prime360dedupe.master_psx_cus_blk_stg where batch_id='20260301') and ORIGINATING_STATUS in ('REJECTED','CANCELLED','FULFILLED','APPROVED','WIP') and NOT EXISTS (SELECT /*+ PARALLEL */  1  FROM prod_prime360dedupe.p0_psx_cus_blk_ftd_hist ftd WHERE ftd.CUST_UNQ_ID = trg.CUST_UNQ_ID and ftd.CUSTOMER_BASE_FLAG='INFLIGHT' and ftd.psx_batch_id in (select psx_batch_id from prod_prime360dedupe.master_psx_cus_blk_stg where batch_id='20260301') and ftd.ORIGINATING_STATUS in ('REJECTED','CANCELLED','FULFILLED','APPROVED','WIP'))) as trg_del_retn,
+(select /*+ parallel(2) */ count(*)   from prod_prime360dedupe.p0_psx_cus_blk_ftd_hist where trunc(insert_time)=trunc(sysdate-5) and duiflag='D') as online_del_retn from dual;
+
+
+
+
+14. Pre and Post COLLATERAL_EOD_TIMINGS change the batch_id :- 
+
+
+– - Pre_EOD_Timings,
+
+
+SELECT
+    to_char(insert_time,'dd/mm/yyyy') as date1,
+    bpm_message_id as psx_batch_id,
+    TO_CHAR(MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s0_start_time,   
+    TO_CHAR(MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s0_end_time,  
+    TO_CHAR(MAX(CASE WHEN j.stage = 1 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s1_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 1 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s1_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 2 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s2_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 2 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s2_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 3 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s3_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 3 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s3_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s4_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s4_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 5 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s5_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 5 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s5_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 6 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s6_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 6 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s6_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 7 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s7_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 7 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s7_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 8 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s8_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 8 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s8_end_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 9 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s9_start_time,
+    TO_CHAR(MAX(CASE WHEN j.stage = 9 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END), 'HH:MI:SS AM') AS s9_end_time,
+
+
+    -- Calculate the time difference using NUMTODSINTERVAL
+    REGEXP_SUBSTR(
+        -- Cast the absolute difference between the dates to an interval
+        TO_CHAR(
+            NUMTODSINTERVAL(
+                ABS(
+                    MAX(CASE WHEN j.stage = 0 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END) -
+                    MAX(CASE WHEN j.stage = 9 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END)
+                ), 'DAY'
+            )
+        ), '[[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}'
+    ) AS Total_time,
+            REGEXP_SUBSTR(
+        -- Cast the absolute difference between the dates to an interval
+        TO_CHAR(
+            NUMTODSINTERVAL(
+                ABS(
+                    MAX(CASE WHEN j.stage = 4 THEN TO_DATE(j.startDate, 'Mon DD, YYYY HH:MI:SS AM') END) -
+                    MAX(CASE WHEN j.stage = 6 THEN TO_DATE(j.endDate, 'Mon DD, YYYY HH:MI:SS AM') END)
+                ), 'DAY'
+            )
+        ), '[[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}'
+    ) AS Down_Time
+FROM
+    collateraldedupe.psx_bpm_live,
+    JSON_TABLE(
+        purpose_json_content,
+        '$.workFlowStages[*]'
+        COLUMNS (
+            stage              NUMBER PATH '$.workStage',
+            startDate          VARCHAR2(30) PATH '$.startDate',
+            endDate            VARCHAR2(30) PATH '$.endDate'
+        )
+    ) j
+WHERE bpm_message_id IN (SELECT DISTINCT psx_batch_id FROM prod_psx_dedupe_staging.psx_collateral_eod_control_t WHERE batch_id = '20260301')
+group by bpm_message_id,to_char(insert_time,'dd/mm/yyyy');
+
+
+
+
+
+
+– - Post_EOD_Timings,
+
+
+-- Collateral After Eod Count sheet query (Execute after collateral Eod complete)
+
+
+select
+(select  distinct to_char(trunc(insert_ts),'dd/mm/yyyy') from prod_psx_dedupe_staging.PSX_COLLATERAL_EOD_CONTROL_T where batch_id='20260301') As eod_date,
+(select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_COLLATERAL_EOD_CONTROL_T where batch_id='20260301') as psx_batch_id, 
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_collateral_data_incremental where batch_id='20260301') as Staging_Collateral_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_collateral_data_incremental_hist where batch_id='20260301') as Staging_hist_Collateral_count,
+(select /*+ parallel(2) */ count(*) from PROD_PSX_DEDUPE_STAGING.ybl_collateral_data_incremental_error where batch_id='20260301') as Staging_Error_Collateral_count,
+(select /*+ parallel(2) */ count(*) from COLLATERALDEDUPE.psx_collateral_data_incremental_error where batch_id='20260301') as PSXSchema_Error_Collateral_count,
+(select /*+ parallel(2) */ count(*) from COLLATERALDEDUPE.p0_psx_col_blk_trg where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_COLLATERAL_EOD_CONTROL_T where batch_id='20260301')) as Collateral_Incremental_target_count, 
+(select /*+ parallel(2) */ count(*) from COLLATERALDEDUPE.p0_psx_col_blk_trg) as Collateral_Total_Target_count,
+(select customer_p0 from COLLATERALDEDUPE.psx_object_stats where psx_batch_id in (select distinct psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_COLLATERAL_EOD_CONTROL_T where batch_id='20260301')) as Collateral_Object_count,
+(select regexp_substr(max(insert_time)-min(insert_time),'[0-9]+\:[0-9]+\:[0-9]+') from COLLATERALDEDUPE.PSX_COLLATERAL_EOD_STATUS 
+where psx_batch_id in (select psx_batch_id from PROD_PSX_DEDUPE_STAGING.PSX_COLLATERAL_EOD_CONTROL_T where batch_id='20260301')) as COLLATERAL_EOD_END_TIME from dual;
+
+
+
+
+-- Source system wise base count
+
+
+SELECT  
+    c.C_FCR, c.C_FINNONE, c.C_CC, c.C_BRNET, c.C_TOTAL,
+         p.P_FCR, p.P_FINNONE, p.P_CC, p.P_BRNET, p.P_TOTAL,
+    a.A_FCR, a.A_FINNONE, a.A_CC,a.A_BRNET, a.A_TOTAL
+FROM (
+    -- Table 1: Prime360 Dedupe (Customer)
+    SELECT /*+ parallel(4) */
+        COUNT(CASE WHEN source_system = 'FCR' THEN 1 END) AS P_FCR,
+        COUNT(CASE WHEN source_system = 'FINNONE' THEN 1 END) AS P_FINNONE,
+        COUNT(CASE WHEN source_system = 'CC' THEN 1 END) AS P_CC,
+        COUNT(CASE WHEN source_system = 'BRNET' THEN 1 END) AS P_BRNET,
+        COUNT(*) AS P_TOTAL
+    FROM prod_prime360dedupe.p0_psx_cus_blk_trg
+    WHERE customer_base_flag != 'INFLIGHT'
+) p
+CROSS JOIN (
+    -- Table 2: Clip Dedupe
+    SELECT /*+ parallel(4) */
+        COUNT(CASE WHEN source_system = 'FCR' THEN 1 END) AS C_FCR,
+        COUNT(CASE WHEN source_system = 'FINNONE' THEN 1 END) AS C_FINNONE,
+        COUNT(CASE WHEN source_system = 'CC' THEN 1 END) AS C_CC,
+        COUNT(CASE WHEN source_system = 'BRNET' THEN 1 END) AS C_BRNET,
+        COUNT(*) AS C_TOTAL
+    FROM prod_clipdedupe.p0_psx_cus_blk_trg
+) c
+CROSS JOIN (
+    -- Table 3: Account Data
+    SELECT /*+ parallel(4) */
+        COUNT(CASE WHEN source_system = 'FCR' THEN 1 END) AS A_FCR,
+        COUNT(CASE WHEN source_system = 'FINNONE' THEN 1 END) AS A_FINNONE,
+        COUNT(CASE WHEN source_system = 'CC' THEN 1 END) AS A_CC,
+                COUNT(CASE WHEN source_system = 'BRNET' THEN 1 END) AS A_BRNET,
+        COUNT(*) AS A_TOTAL
+    FROM prod_prime360dedupe.psx_account_data_trg
+) a;
+
+
+
+
+15. Need to Fill the Prime API Hit stats :- 
+
+
+Prime hourly sheet filling query (if any source system added modify the query), 
+pending and timeout cases are added manually by reducing count in that hour
+
+
+Note :- Failure API reasons should be taken from logs
+
+
+/POSIDEX/Prime360HA/Logs/CustomerWS
+
+
+Note :- update status details failure details counts are not added check in in psx_ws_audit table for request validation failed.
+ 
+with hours as (
+  select to_timestamp('26-SEP-2025','DD-MON-YYYY') + (level-1) * interval '1' hour as hour_start
+  from dual
+  connect by level <= 24
+),
+
+
+src_name as (
+  select 'FINNONEAPS' AS SRC, 'FAA' AS feed_sys_idd from dual union all
+  select 'SFDC' AS SRC, 'FAA' AS feed_sys_idd from dual union all
+  select 'YESRACE' AS SRC, 'FAA' AS feed_sys_idd from dual union all
+  select 'NAVICLOUAPS' AS SRC, 'FAA' AS feed_sys_idd from dual union all
+  select 'DGOD' AS SRC, 'FAA' AS feed_sys_idd from dual union all
+  select 'YCOLORS' AS SRC, 'FAA' AS feed_sys_idd from dual union all
+  select 'CARDSAPS' AS SRC, 'FAA' AS feed_sys_idd from dual union all
+  select 'SFDCML' AS SRC, 'FAA' AS feed_sys_idd from dual union all
+  select 'FINNONEAPS' AS SRC, 'FC' AS feed_sys_idd from dual union all
+  select 'DGOD' AS SRC, 'FC' AS feed_sys_idd from dual union all
+  select 'YPWAL' AS SRC, 'FC' AS feed_sys_idd from dual union all
+  select 'ROBOTICS' AS SRC, 'FC' AS feed_sys_idd from dual union all
+  select 'SFDCML' AS SRC, 'FC' AS feed_sys_idd from dual union all
+  select 'CARDSAPS' AS SRC, 'FC' AS feed_sys_idd from dual 
+),
+
+
+updt_status as (
+  select
+    trunc(insert_time, 'HH') as time_key,
+    source_system,
+    'FAA' as ufid,
+    count(*) as ucont
+  from prod_prime360dedupe.psx_update_status_details
+  where trunc(insert_time) = to_date('26-SEP-2025','dd-mon-yyyy')
+  group by trunc(insert_time, 'HH'), source_system
+),
+
+
+fad_status as (
+  select
+    trunc(insert_time, 'HH') as time_key,
+    requested_by, 
+         'FAA' as ffid,
+    count(*) as fcont
+  from prod_prime360dedupe.psx_fetch_account_details
+  where trunc(insert_time) = to_date('26-SEP-2025','dd-mon-yyyy') 
+  group by trunc(insert_time, 'HH'), requested_by
+),
+
+
+req_status as (
+  select
+    trunc(insert_time, 'HH') as time_key,
+    userid,
+    feed_sys_id,
+    count(*) as reqcont
+  from prod_prime360dedupe.psx_request
+  where trunc(insert_time) = to_date('26-SEP-2025','dd-mon-yyyy')
+  group by trunc(insert_time, 'HH'), userid, feed_sys_id
+),
+
+
+Token_case as (
+select trunc(insert_time, 'HH') as time_key,
+ count(*) as tkncnt, 
+ request_type, case
+when client_requestid like '%FINNON%' then 'FINNONEAPS' 
+when client_requestid like '%DGOD%' then 'DGOD'
+when regexp_like(client_requestid,'^[a-z0-9]+$')
+and regexp_like(client_requestid,'[a-z]')
+then 'SFDC' when length(client_requestid)=14 and regexp_like(client_requestid,'^[0-9]+$') and client_requestid like '2025%'  then 'YESRACE' 
+when client_requestid like '%YPWAL%' then 'YPWAL'
+when client_requestid like '%DGOD%' then 'DGOD'
+when client_requestid like '%NAVICLOUAPS%' then 'NAVICLOUAPS'
+when client_requestid like '%RPAVP%' or client_requestid like '%RPAFN%' then 'ROBOTICS'
+when client_requestid like '%COLORS%' or client_requestid is null then 'YCOLORS'
+when client_requestid like '%SFDC%' then 'SFDCML'
+when client_requestid like '%CARDS%' then 'CARDSAPS'
+else 'SANITY HIT' END as client_requestid from prod_prime360dedupe.psx_ws_audit where trunc(insert_time) = to_date('26-SEP-2025','dd-mon-yyyy')
+and ( status like '%Got exception while calling Engine for processing%')
+group by trunc(insert_time, 'HH'),request_type,case 
+when client_requestid like '%FINNON%' then 'FINNONEAPS' 
+when client_requestid like '%DGOD%' then 'DGOD'
+when regexp_like(client_requestid,'^[a-z0-9]+$')
+and regexp_like(client_requestid,'[a-z]')
+then 'SFDC' when length(client_requestid)=14 and regexp_like(client_requestid,'^[0-9]+$') and client_requestid like '2025%'  then 'YESRACE' 
+when client_requestid like '%YPWAL%' then 'YPWAL'
+when client_requestid like '%DGOD%' then 'DGOD'
+when client_requestid like '%NAVICLOUAPS%' then 'NAVICLOUAPS'
+when client_requestid like '%RPAVP%' or client_requestid like '%RPAFN%' then 'ROBOTICS'
+when client_requestid like '%COLORS%' or client_requestid is null then 'YCOLORS'
+when client_requestid like '%SFDC%' then 'SFDCML'
+when client_requestid like '%CARDS%' then 'CARDSAPS'
+else 'SANITY HIT' END),
+
+
+failure_case as (
+select trunc(insert_time, 'HH') as time_key,
+ count(*) as fcnt, 
+ request_type, case
+when client_requestid like '%FINNON%' then 'FINNONEAPS' 
+when client_requestid like '%DGOD%' then 'DGOD'
+when regexp_like(client_requestid,'^[a-z0-9]+$')
+and regexp_like(client_requestid,'[a-z]')
+then 'SFDC' when length(client_requestid)=14 and regexp_like(client_requestid,'^[0-9]+$') and client_requestid like '2025%'  then 'YESRACE' 
+when client_requestid like '%YPWAL%' then 'YPWAL'
+when client_requestid like '%DGOD%' then 'DGOD'
+when client_requestid like '%NAVICLOUAPS%' then 'NAVICLOUAPS'
+when client_requestid like '%RPAVP%' or client_requestid like '%RPAFN%' then 'ROBOTICS'
+when client_requestid like '%COLORS%' or client_requestid is null then 'YCOLORS'
+when client_requestid like '%SFDC%' then 'SFDCML'
+when client_requestid like '%CARDS%' then 'CARDSAPS'
+else 'SANITY HIT' END as client_requestid from prod_prime360dedupe.psx_ws_audit where trunc(insert_time) = to_date('26-SEP-2025','dd-mon-yyyy')
+and ( status like '%Request Validations Failed%')
+group by trunc(insert_time, 'HH'),request_type,case 
+when client_requestid like '%FINNON%' then 'FINNONEAPS' 
+when client_requestid like '%DGOD%' then 'DGOD'
+when regexp_like(client_requestid,'^[a-z0-9]+$')
+and regexp_like(client_requestid,'[a-z]')
+then 'SFDC' when length(client_requestid)=14 and regexp_like(client_requestid,'^[0-9]+$') and client_requestid like '2025%'  then 'YESRACE' 
+when client_requestid like '%YPWAL%' then 'YPWAL'
+when client_requestid like '%DGOD%' then 'DGOD'
+when client_requestid like '%NAVICLOUAPS%' then 'NAVICLOUAPS'
+when client_requestid like '%RPAVP%' or client_requestid like '%RPAFN%' then 'ROBOTICS'
+when client_requestid like '%COLORS%' or client_requestid is null then 'YCOLORS'
+when client_requestid like '%SFDC%' then 'SFDCML'
+when client_requestid like '%CARDS%' then 'CARDSAPS'
+else 'SANITY HIT' END),
+
+
+sys_maint as (
+select trunc(insert_time, 'HH') as time_key,'FINNONEAPS' USERID, 
+'FAA' FEED_SYS_ID,count(*) as mntcnt 
+from prod_prime360dedupe.psx_ws_audit 
+WHERE trunc(insert_time) = to_date('26-SEP-2025','dd-mon-yyyy') and
+request_type IN ('FAA','US','FC','FAD') AND status LIKE '%System under Maintenance%'
+group by trunc(insert_time, 'HH'))
+
+
+
+
+select
+  sname.src as userid,
+  sname.feed_sys_idd as feed_sys_id,
+  to_char(h.hour_start, 'dd/mm/yyyy') as datte,
+  to_char(h.hour_start, 'HH:MI:SS AM') as start_time,
+  to_char(h.hour_start + interval '1' hour, 'HH:MI:SS AM') as end_time,
+  req.reqcont as faa_count,
+  ustatus.ucont as us_count,
+  fstatus.fcont as fad_count,
+  fcase.fcnt as failed_request,
+  symaint.mntcnt as system_maint,
+  Tokcase.tkncnt as Invalid_token
+  
+from src_name sname
+cross join hours h
+left join updt_status ustatus
+  on ustatus.source_system = sname.src
+  and ustatus.ufid = sname.feed_sys_idd
+  and ustatus.time_key = h.hour_start 
+LEFT join fad_status fstatus
+  on sname.src = fstatus.requested_by
+  and fstatus.ffid = sname.feed_sys_idd
+  and fstatus.time_key = h.hour_start
+left join Token_case Tokcase
+  on sname.src=Tokcase.client_requestid
+  and Tokcase.request_type = sname.feed_sys_idd
+  and Tokcase.time_key = h.hour_start
+left join failure_case fcase
+  on sname.src=fcase.client_requestid
+  and fcase.request_type = sname.feed_sys_idd
+  and fcase.time_key = h.hour_start
+left join req_status req
+  on req.userid = sname.src
+  and req.feed_sys_id = sname.feed_sys_idd
+  and req.time_key = h.hour_start
+left join sys_maint symaint
+  on symaint.userid = sname.src
+  and symaint.feed_sys_id = sname.feed_sys_idd
+  and symaint.time_key = h.hour_start
+order by
+  h.hour_start,sname.feed_sys_idd asc,case sname.src when 'FINNONEAPS' THEN 1 When 'SFDC' THEN 2 when 'YESRACE' THEN 3 when 'NAVICLOUAPS' THEN 4 when 'DGOD' THEN 5
+when 'YPWAL' THEN 6 when 'ROBOTICS' THEN 7 ELSE 8 END;
+
+
+
+
+
+
+16. Need to Fill the collateral API Hit stats :- 
+
+
+Collateral hourly sheet query if any source system added modify the query)| pending and timeout cases are added manually by reducing count in that hour
+
+
+Note :-  Failure API reasons should be taken from table
+collateraldedupe.psx_api_request_error_tbl
+
+
+WITH hours AS (
+  SELECT TO_TIMESTAMP('26-SEP-2025','DD-MON-YYYY') + (LEVEL-1) * INTERVAL '1' HOUR AS hour_start
+  FROM dual
+  CONNECT BY LEVEL <= 24
+),
+src_name AS (
+  SELECT 'SFDCML' AS SRC FROM dual
+),
+sys_maint AS (
+  SELECT TRUNC(insert_time, 'HH') AS time_key, 
+         'SFDCML' AS USERID, 
+         COUNT(*) AS mntcnt 
+  FROM collateraldedupe.psx_ws_audit 
+  WHERE TRUNC(insert_time) = TO_DATE('26-SEP-2025','DD-MON-YYYY')
+    AND status LIKE '%System under Maintenance%'
+  GROUP BY TRUNC(insert_time, 'HH')
+),
+failure_case AS (
+  SELECT TRUNC(insert_time, 'HH') AS time_key,
+         'SFDCML' AS USERID,
+         COUNT(*) AS fcnt
+  FROM collateraldedupe.psx_ws_audit 
+  WHERE TRUNC(insert_time) = TO_DATE('26-SEP-2025','DD-MON-YYYY')
+    AND status LIKE '%Request Validations Failed%'
+  GROUP BY TRUNC(insert_time, 'HH')
+),
+req_status AS (
+  SELECT
+    TRUNC(insert_time, 'HH') AS time_key,
+    userid,
+    COUNT(*) AS reqcont
+  FROM collateraldedupe.psx_request
+  WHERE TRUNC(insert_time) = TO_DATE('26-SEP-2025','DD-MON-YYYY')
+  GROUP BY TRUNC(insert_time, 'HH'), userid
+)
+SELECT
+  sname.src AS userid,
+  TO_CHAR(h.hour_start, 'dd/mm/yyyy') AS datte,
+  TO_CHAR(h.hour_start, 'HH:MI:SS AM') AS start_time,
+  TO_CHAR(h.hour_start + INTERVAL '1' HOUR, 'HH:MI:SS AM') AS end_time,
+  NVL(req.reqcont, 0) AS fc_count, -- Replaced NULL with 0 here
+  fcase.fcnt AS failed_request,    -- Remains NULL if empty
+  symaint.mntcnt AS system_maint  -- Remains NULL if empty
+FROM src_name sname
+CROSS JOIN hours h
+LEFT JOIN failure_case fcase
+  ON fcase.time_key = h.hour_start
+  AND fcase.userid = sname.src
+LEFT JOIN sys_maint symaint
+  ON symaint.time_key = h.hour_start
+  AND symaint.userid = sname.src
+LEFT JOIN req_status req
+  ON req.time_key = h.hour_start
+  AND req.userid = sname.src
+ORDER BY h.hour_start;
